@@ -4,6 +4,13 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./app:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
     networks:
       - traefik-net
     labels:
