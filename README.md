@@ -65,12 +65,11 @@ Open your browser and go to http://127.0.0.1:8000 to access the API documentatio
     - Description: Extracts notes from the provided transcription.
     - Method: `POST`
     - Request Body:
-
         ```json
         {
         "transcription": "Your transcribed text here"
         }
-    ```
+        ```
 - Endpoint: `/api/summarize`
     - Description: Summarizes the main points from the provided transcription.
     - Method: `POST`
