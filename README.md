@@ -32,7 +32,7 @@ LiveNote is a powerful application designed to transcribe live audio streams, ta
 4. Access the API:
 Open your browser and go to http://127.0.0.1:8000 to access the API documentation and endpoints.
 
-## #Manual Setup
+### Manual Setup
 
 1. Set up a virtual environment:
     ```bash
@@ -58,7 +58,7 @@ Open your browser and go to http://127.0.0.1:8000 to access the API documentatio
 ## Usage
 ### WebSocket API
 - Endpoint: `/ws/transcribe`
-- Description: Accepts live audio streams for real-time transcription.
+    - Description: Accepts live audio streams for real-time transcription.
 
 ### REST API
 - Endpoint: `/api/notes`
@@ -67,7 +67,7 @@ Open your browser and go to http://127.0.0.1:8000 to access the API documentatio
     - Request Body:
         ```json
         {
-        "transcription": "Your transcribed text here"
+            "transcription": "Your transcribed text here"
         }
         ```
 - Endpoint: `/api/summarize`
@@ -81,8 +81,8 @@ Open your browser and go to http://127.0.0.1:8000 to access the API documentatio
         ```
 
 ## Models Used
-- Whisper: For live audio transcription.
-- Phi-3-mini-4k-instruct: For extracting notes and summarizing main points.
+- [Whisper](https://github.com/openai/whisper): For live audio transcription.
+- [Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct): For extracting notes and summarizing main points.
 
 ## Contributing
 Contributions are welcome! Please open an issue or submit a pull request with your changes.
@@ -91,8 +91,7 @@ Contributions are welcome! Please open an issue or submit a pull request with yo
 This project is licensed under the MIT License.
 
 ## Acknowledgements
-- Whisper - Real-time transcription model.
-- Phi-3-mini-4k-instruct - Language model for note-taking and summarization.
+- [WhisperFusion](https://github.com/collabora/WhisperFusion) - builds upon the capabilities of WhisperLive and WhisperSpeech to provide a seamless conversations with an AI.
 
 ## Contact
 For any questions or feedback, please contact us at ali8molaee@gmail.com .

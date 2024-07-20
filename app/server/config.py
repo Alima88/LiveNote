@@ -21,6 +21,11 @@ class Settings(metaclass=Singleton):
 
     testing: bool = os.getenv("TESTING", default=False)
 
+    llm_model: str = os.getenv("LLM_MODEL", default="phi-2")
+    phi_tensorrt_path: str = os.getenv("PHI_TENSORRT_PATH")
+    phi_tokenizer_path: str = Path(phi_tensorrt_path) / "tokenizer"
+    whisper_tensorrt_path: str = os.getenv("WHISPER_TENSORRT_PATH")
+
     log_config = {
         "version": 1,
         "handlers": {

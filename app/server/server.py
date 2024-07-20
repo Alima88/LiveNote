@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 import fastapi
 import pydantic
+from apps.llm.routes import router as llm_router
 from core import exceptions
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -93,6 +94,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(llm_router)
 
 
 @app.get("/")
