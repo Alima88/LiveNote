@@ -24,17 +24,17 @@ async def lifespan(app: fastapi.FastAPI):  # type: ignore
 
 
 app = fastapi.FastAPI(
-    title="FastAPI Launchpad",
+    title="Live Note",
     # description=DESCRIPTION,
     version="0.1.0",
     contact={
-        "name": "Mahdi Kiani",
-        "url": "https://github.com/mahdikiani/FastAPILaunchpad",
-        "email": "mahdikiany@gmail.com",
+        "name": "Ali Molaee",
+        "url": "https://github.com/Alima88/LiveNote",
+        "email": "ali8molaee@gmail.com",
     },
     license_info={
         "name": "MIT License",
-        "url": "https://github.com/mahdikiani/FastAPILaunchpad/blob/main/LICENSE",
+        "url": "https://github.com/Alima88/LiveNote/blob/main/LICENSE",
     },
     lifespan=lifespan,
 )
@@ -83,6 +83,8 @@ async def usso_exception_handler(request: fastapi.Request, exc: Exception):
 
 origins = [
     "http://localhost:8000",
+    "https://wln.inbeet.tech",
+    "https://app.wln.inbeet.tech",
 ]
 app.add_middleware(
     CORSMiddleware,

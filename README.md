@@ -1,57 +1,99 @@
-# FastAPI Boilerplate
+# LiveNote
 
-This FastAPI Boilerplate is designed to provide a robust starting point for building modern web applications. It comes pre-configured with Docker, Traefik for easy deployment, and GitHub Actions for continuous integration. The boilerplate supports both SQL and NoSQL databases through flexible ORM configurations.
+LiveNote is a powerful application designed to transcribe live audio streams, take notes, and summarize key points in real-time. Leveraging advanced AI models like "Whisper" for transcription and "Phi-3-mini-4k-instruct" for summarization, LiveNote enhances productivity and ensures you never miss important details from your conversations or meetings.
 
 ## Features
 
-- **FastAPI**: High-performance, easy to learn, fast to code, ready for production
-- **Docker and Docker Compose**: Containerization of the application and its dependencies for easy deployment and scaling
-- **Traefik Integration**: Simplifies networking and SSL termination
-- **GitHub Actions**: Automated testing and deployment
-- **ORM Flexibility**: Configurable for use with various ORMs to support both SQL and NoSQL databases
+- **Real-time Transcription:** Convert live audio streams into text instantly using the Whisper model.
+- **Note-taking:** Extract essential notes from the transcriptions.
+- **Summarization:** Summarize main points from the transcriptions to get concise insights.
 
-## Requirements
+## Installation
 
-- Docker
-- Docker Compose
+### Docker Setup
 
-## Getting Started
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/yourusername/livenote.git
+   cd livenote
+   ```
 
-To get started with this boilerplate, clone the repository and follow the steps below.
+2. Create a .env file:
+    ```bash
+    cp sample.env .env
+    ```
 
-### 1. Clone the Repository
+3. Build and run the containers using Docker Compose:
 
-```bash
-git clone https://github.com/mahdikiani/FastAPILaunchpad.git
-cd FastAPILaunchpad
-```
+    ```bash
+    docker-compose up --build
+    ```
 
-### 2. Build and Run with Docker Compose
+4. Access the API:
+Open your browser and go to http://127.0.0.1:8000 to access the API documentation and endpoints.
 
-```bash
-docker-compose up --build
-```
+## #Manual Setup
 
-This command will build the Docker image and run the containers as specified in your `docker-compose.yml` file. Your FastAPI application will be available at `http://localhost:8000`.
+1. Set up a virtual environment:
+    ```bash
+    python -m venv env
+    source env/bin/activate   # On Windows, use `env\Scripts\activate`
+    ```
 
-### 3. Accessing the API
+2. Install the dependencies:
+    ```bash
+    pip install -r app/ml-requirements.txt
+    pip install -r app/requirements.txt
+    ```
 
-Navigate to `http://localhost:8000/docs` in your web browser to view the automatic interactive API documentation provided by Swagger UI.
+3. Set up environment variables:
+    Create a .env file in the project root and add your environment variables (e.g., API keys).
 
-## Configuration
+4. Start the FastAPI server:
 
-### Database Configuration
+    ```bash
+    python app.py
+    ```
 
-You can configure your database connection in the `config.py` file. This boilerplate is compatible with various ORMs and supports both SQL and NoSQL options.
+## Usage
+### WebSocket API
+- Endpoint: `/ws/transcribe`
+- Description: Accepts live audio streams for real-time transcription.
 
-### Traefik Configuration
+### REST API
+- Endpoint: `/api/notes`
+    - Description: Extracts notes from the provided transcription.
+    - Method: `POST`
+    - Request Body:
 
-To deploy with Traefik, ensure you have Traefik set up on your deployment server or environment. Modify the `traefik.yml` file according to your specific deployment requirements.
+        ```json
+        {
+        "transcription": "Your transcribed text here"
+        }
+    ```
+- Endpoint: `/api/summarize`
+    - Description: Summarizes the main points from the provided transcription.
+    - Method: `POST`
+    - Request Body:
+        ```json
+        {
+            "transcription": "Your transcribed text here"
+        }
+        ```
 
-### Continuous Integration
+## Models Used
+- Whisper: For live audio transcription.
+- Phi-3-mini-4k-instruct: For extracting notes and summarizing main points.
 
-GitHub Actions workflows are set up for continuous integration, ensuring that your tests run automatically every time you push changes to your repository.
+## Contributing
+Contributions are welcome! Please open an issue or submit a pull request with your changes.
 
-### License
+## License
+This project is licensed under the MIT License.
 
-This project is licensed under the [MIT License](https://github.com/mahdikiani/FastAPILaunchpad/blob/main/LICENSE).
+## Acknowledgements
+- Whisper - Real-time transcription model.
+- Phi-3-mini-4k-instruct - Language model for note-taking and summarization.
+
+## Contact
+For any questions or feedback, please contact us at ali8molaee@gmail.com .
