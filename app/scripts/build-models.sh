@@ -45,7 +45,7 @@ if [ ! -d "./ml/TensorRT-LLM-examples" ] || [ -z "$(ls -A ./ml/TensorRT-LLM-exam
     echo "TensorRT-LLM-examples directory does not exist or is empty. Downloading..."
     git clone -b v0.10.0 --depth 1 https://github.com/NVIDIA/TensorRT-LLM.git ./ml/TensorRT-LLM
     mv ./ml/TensorRT-LLM/examples ./ml/TensorRT-LLM-examples
-    rm -rf TensorRT-LLM
+    rm -rf ./ml/TensorRT-LLM
 else
     echo "TensorRT-LLM-examples directory exists and is not empty. Skipping ..."
 fi

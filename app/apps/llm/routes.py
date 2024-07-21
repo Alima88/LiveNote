@@ -1,7 +1,7 @@
 import fastapi
 
 from .schemas import PromptRequest
-from .services import TensorRTLLMEngine
+from apps.llm.services import TensorRTLLMEngine
 
 router = fastapi.APIRouter(prefix="/llm", tags=["llm"])
 

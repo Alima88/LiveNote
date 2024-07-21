@@ -2,6 +2,7 @@
 
 test -f /etc/shinit_v2 && source /etc/shinit_v2
 
+
 echo "Running build-models.sh..."
 ./scripts/build-models.sh
 

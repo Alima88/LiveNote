@@ -2,8 +2,8 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Callable, Generator, Optional, Union
-
+from typing import Callable, Generator, Optional, Union
+from multiprocessing import Queue
 import tensorrt_llm
 import torch
 from tensorrt_llm.builder import get_engine_version
@@ -187,18 +187,18 @@ class TensorRTLLMEngine:
         output_ids: torch.Tensor,
         input_lengths: list[int],
         sequence_lengths: torch.Tensor,
-        transcription_queue: Any,
+        transcription_queue: Optional[Queue] = None,
     ) -> Optional[list[str]]:
         batch_size, num_beams, _ = output_ids.size()
         for batch_idx in range(batch_size):
-            if transcription_queue.qsize() != 0:
+            if transcription_queue and transcription_queue.qsize() != 0:
                 return None
 
             inputs = output_ids[batch_idx][0][: input_lengths[batch_idx]].tolist()
             input_text = self.tokenizer.decode(inputs, skip_special_tokens=False)
             output = []
             for beam in range(num_beams):
-                if transcription_queue.qsize() != 0:
+                if transcription_queue and transcription_queue.qsize() != 0:
                     return None
 
                 output_begin = input_lengths[batch_idx]
@@ -242,9 +242,9 @@ class TensorRTLLMEngine:
         model_path: str,
         tokenizer_path: str,
         phi_model_type: Optional[str] = None,
-        transcription_queue: Any = None,
-        llm_queue: Any = None,
-        audio_queue: Any = None,
+        transcription_queue: Queue = None,
+        llm_queue: Queue = None,
+        audio_queue: Queue = None,
         input_text: Optional[list[str]] = None,
         max_output_len: int = 100,
         max_attention_window_size: int = 4096,
@@ -387,6 +387,79 @@ class TensorRTLLMEngine:
                 )
                 self.last_prompt = None
                 self.last_output = None
+
+    def run_inference(
+        self,
+        input_text: str,
+        conversation_history: Optional[list[tuple[str, str]]] = None,
+        max_output_len: int = 100,
+        max_attention_window_size: int = 4096,
+        num_beams: int = 1,
+        streaming: bool = False,
+        streaming_interval: int = 4,
+        debug: bool = False,
+    ) -> str:
+        conversation_history = conversation_history or []
+
+        if self.phi_model_type == "phi-2":
+            self.chat_formatter = self.format_prompt_qa
+        else:
+            self.chat_formatter = self.format_prompt_chatml
+
+        formatted_input = self.chat_formatter(input_text, conversation_history)
+
+        batch_input_ids = self.parse_input(
+            input_text=[formatted_input],
+            add_special_tokens=True,
+            max_input_length=923,
+            pad_id=None,
+        )
+
+        input_lengths = [x.size(0) for x in batch_input_ids]
+
+        logging.info(f"[LLM INFO:] Running LLM Inference with prompt: {input_text}")
+
+        start = time.time()
+        with torch.no_grad():
+            outputs = self.runner.generate(
+                batch_input_ids,
+                max_new_tokens=max_output_len,
+                max_attention_window_size=max_attention_window_size,
+                end_id=self.end_id,
+                pad_id=self.pad_id,
+                temperature=1.0,
+                top_k=1,
+                top_p=0.0,
+                num_beams=num_beams,
+                length_penalty=1.0,
+                repetition_penalty=1.0,
+                stop_words_list=None,
+                bad_words_list=None,
+                lora_uids=None,
+                prompt_table_path=None,
+                prompt_tasks=None,
+                streaming=streaming,
+                output_sequence_lengths=True,
+                return_dict=True,
+            )
+            torch.cuda.synchronize()
+
+        output_ids = outputs["output_ids"]
+        sequence_lengths = outputs["sequence_lengths"]
+        output = self.decode_tokens(output_ids, input_lengths, sequence_lengths, None)
+
+        infer_time = time.time() - start
+
+        if output is not None:
+            if self.phi_model_type == "phi-2":
+                output[0] = clean_phi2_output(output[0])
+
+            logging.info(
+                f"[LLM INFO:] Output: {output[0]}\nLLM inference done in {infer_time} ms\n\n"
+            )
+            return output[0]
+
+        return ""
 
 
 if __name__ == "__main__":
