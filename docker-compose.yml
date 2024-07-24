@@ -2,6 +2,7 @@ services:
   app:
     build: app
     restart: unless-stopped
+    command: ./scripts/run.sh
     env_file:
       - .env
     volumes:
@@ -11,6 +12,8 @@ services:
         reservations:
           devices:
             - capabilities: ["gpu"]
+    ports:
+      - "3000:3000"
     networks:
       - traefik-net
     labels:

@@ -51,11 +51,11 @@ else
 fi
 
 
-if [ ! -d "./ml/$ADIO_MODEL" ] || [ -z "$(ls -A ./ml/$ADIO_MODEL)" ]; then
-    echo "$ADIO_MODEL directory does not exist or is empty. Running build-whisper.sh..."
+if [ ! -d "./ml/$AUDIO_MODEL" ] || [ -z "$(ls -A ./ml/$AUDIO_MODEL)" ]; then
+    echo "$AUDIO_MODEL directory does not exist or is empty. Running build-whisper.sh..."
     ./scripts/build-whisper.sh
 else
-    echo "$ADIO_MODEL directory exists and is not empty. Skipping build-whisper.sh..."
+    echo "$AUDIO_MODEL directory exists and is not empty. Skipping build-whisper.sh..."
 fi
 
 # ./build-mistral.sh

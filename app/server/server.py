@@ -1,14 +1,13 @@
-import json
 import logging
 from contextlib import asynccontextmanager
 
 import fastapi
-import pydantic
-from apps.llm.routes import router as llm_router
-from core import exceptions
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from json_advanced import dumps
+
+from apps.llm.routes import router as llm_router
+from apps.transcription.routes import router as transcription_router
+from core import exceptions
 
 from . import config, db
 
@@ -17,7 +16,7 @@ from . import config, db
 async def lifespan(app: fastapi.FastAPI):  # type: ignore
     """Initialize application services."""
     await db.init_db()
-    config.Settings().config_logger()
+    config.Settings.config_logger()
 
     logging.info("Startup complete")
     yield
@@ -51,23 +50,8 @@ async def base_http_exception_handler(
     )
 
 
-@app.exception_handler(pydantic.ValidationError)
-@app.exception_handler(fastapi.exceptions.ResponseValidationError)
-async def usso_exception_handler(
-    request: fastapi.Request, exc: pydantic.ValidationError
-):
-    return JSONResponse(
-        status_code=500,
-        content={
-            "message": str(exc),
-            "error": "Exception",
-            "erros": json.loads(dumps(exc.errors())),
-        },
-    )
-
-
 @app.exception_handler(Exception)
-async def usso_exception_handler(request: fastapi.Request, exc: Exception):
+async def general_exception_handler(request: fastapi.Request, exc: Exception):
     import traceback
 
     traceback_str = "".join(traceback.format_tb(exc.__traceback__))
@@ -96,6 +80,7 @@ app.add_middleware(
 )
 
 app.include_router(llm_router)
+app.include_router(transcription_router)
 
 
 @app.get("/")

@@ -1,9 +1,10 @@
 import json
 import logging
 import time
+from multiprocessing import Queue
 from pathlib import Path
 from typing import Callable, Generator, Optional, Union
-from multiprocessing import Queue
+
 import tensorrt_llm
 import torch
 from tensorrt_llm.builder import get_engine_version

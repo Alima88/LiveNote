@@ -10,7 +10,6 @@ import dotenv
 from singleton import Singleton
 
 dotenv.load_dotenv()
-base_dir = Path(__file__).resolve().parent.parent
 
 
 @dataclasses.dataclass
@@ -18,6 +17,7 @@ class Settings(metaclass=Singleton):
     """Server config settings."""
 
     root_url: str = os.getenv("DOMAIN", default="http://localhost:8000")
+    base_dir = Path(__file__).resolve().parent.parent
 
     testing: bool = os.getenv("TESTING", default=False)
 
@@ -25,6 +25,13 @@ class Settings(metaclass=Singleton):
     phi_tensorrt_path: str = os.getenv("PHI_TENSORRT_PATH")
     phi_tokenizer_path: str = Path(phi_tensorrt_path) / "tokenizer"
     whisper_tensorrt_path: str = os.getenv("WHISPER_TENSORRT_PATH")
+
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY")
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
+
+    sample_rate: int = 16000
+    vad_threshold: float = 0.5
 
     log_config = {
         "version": 1,
@@ -60,8 +67,9 @@ class Settings(metaclass=Singleton):
         },
     }
 
-    def config_logger(self):
-        if not (base_dir / "logs").exists():
-            (base_dir / "logs").mkdir()
+    @classmethod
+    def config_logger(cls):
+        if not (cls.base_dir / "logs").exists():
+            (cls.base_dir / "logs").mkdir()
 
-        logging.config.dictConfig(self.log_config)
+        logging.config.dictConfig(cls.log_config)

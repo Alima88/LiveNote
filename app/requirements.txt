@@ -7,3 +7,7 @@ json-advanced
 python-dotenv
 debugpy
 ipython
+
+anthropic
+openai
+google-generativeai

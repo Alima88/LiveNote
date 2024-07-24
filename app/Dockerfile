@@ -16,7 +16,7 @@ FROM base AS ml-base
 RUN pip install --no-cache-dir -U tensorrt_llm==0.10.0 --extra-index-url https://pypi.nvidia.com
 COPY ml-requirements.txt ml-requirements.txt
 RUN pip install --no-cache-dir -r ml-requirements.txt
-RUN pip install -U huggingface_hub tokenizers
+RUN pip install --no-cache-dir -U huggingface_hub tokenizers
 
 
 FROM ml-base AS ml-api-base
@@ -35,4 +35,4 @@ COPY --chown=user:user . .
 
 # CMD ["python3", "-m" ,"debugpy", "--listen", "0.0.0.0:3000", "-m", "app"]
 # CMD [ "python","app.py" ]
-CMD [ "./scripts/run.sh" ]
+# CMD [ "./scripts/run.sh" ]
