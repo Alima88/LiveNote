@@ -17,14 +17,14 @@ class Settings(metaclass=Singleton):
     """Server config settings."""
 
     root_url: str = os.getenv("DOMAIN", default="http://localhost:8000")
-    base_dir = Path(__file__).resolve().parent.parent
+    base_dir: Path = Path(__file__).resolve().parent.parent
 
     testing: bool = os.getenv("TESTING", default=False)
 
     llm_model: str = os.getenv("LLM_MODEL", default="phi-2")
-    phi_tensorrt_path: str = os.getenv("PHI_TENSORRT_PATH")
+    whisper_tensorrt_path: Path = base_dir / "ml" / "whisper_small_en"
+    phi_tensorrt_path: Path = base_dir / "ml" / "Phi-3-mini-4k-instruct"
     phi_tokenizer_path: str = Path(phi_tensorrt_path) / "tokenizer"
-    whisper_tensorrt_path: str = os.getenv("WHISPER_TENSORRT_PATH")
 
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")

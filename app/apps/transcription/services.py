@@ -75,7 +75,7 @@ class VoiceReceiverService(metaclass=Singleton):
 
         # send to process
         try:
-            text = TranscriptionService().transcribe(client_audio.data)
+            text = TranscriptionService().transcribe(client_audio.last_30_seconds)
         except Exception as e:
             logging.error(f"Error in transcription: {e}")
             text = ""

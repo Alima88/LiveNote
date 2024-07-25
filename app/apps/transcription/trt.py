@@ -1,15 +1,10 @@
 import json
 import logging
-import os
 import re
 from collections import OrderedDict
-from functools import lru_cache
 from pathlib import Path
-from subprocess import CalledProcessError, run
-from typing import List, Optional, Tuple, Union
 
 import numpy as np
-import soundfile
 import tensorrt_llm
 import tensorrt_llm.logger as logger
 import torch
@@ -22,105 +17,13 @@ from whisper.tokenizer import get_tokenizer
 
 from server.config import Settings
 
-from .schemas import ClientAudio
+from .whisper_utils import load_audio, load_audio_wav_format, mel_filters, pad_or_trim
 
 SAMPLE_RATE = Settings.sample_rate
 N_FFT = 400
 HOP_LENGTH = 160
 CHUNK_LENGTH = 30
 N_SAMPLES = CHUNK_LENGTH * SAMPLE_RATE  # 480000 samples in a 30-second chunk
-
-
-def pad_or_trim(
-    array: Union[np.ndarray, torch.Tensor], length: int = N_SAMPLES, *, axis: int = -1
-) -> Union[np.ndarray, torch.Tensor]:
-    """
-    Pad or trim the audio array to N_SAMPLES, as expected by the encoder.
-    """
-    if torch.is_tensor(array):
-        if array.shape[axis] > length:
-            array = array.index_select(
-                dim=axis, index=torch.arange(length, device=array.device)
-            )
-
-        if array.shape[axis] < length:
-            pad_widths = [(0, 0)] * array.ndim
-            pad_widths[axis] = (0, length - array.shape[axis])
-            array = F.pad(array, [pad for sizes in pad_widths[::-1] for pad in sizes])
-    else:
-        if array.shape[axis] > length:
-            array = array.take(indices=range(length), axis=axis)
-
-        if array.shape[axis] < length:
-            pad_widths = [(0, 0)] * array.ndim
-            pad_widths[axis] = (0, length - array.shape[axis])
-            array = np.pad(array, pad_widths)
-
-    return array
-
-
-def load_audio(file: str, sr: int = SAMPLE_RATE) -> np.ndarray:
-    """
-    Open an audio file and read as mono waveform, resampling as necessary
-
-    Parameters
-    ----------
-    file: str
-        The audio file to open
-
-    sr: int
-        The sample rate to resample the audio if necessary
-
-    Returns
-    -------
-    A NumPy array containing the audio waveform, in float32 dtype.
-    """
-
-    # This launches a subprocess to decode audio while down-mixing
-    # and resampling as necessary.  Requires the ffmpeg CLI in PATH.
-    # fmt: off
-    cmd = [
-        "ffmpeg", "-nostdin", "-threads", "0", "-i", file, "-f", "s16le", "-ac",
-        "1", "-acodec", "pcm_s16le", "-ar",
-        str(sr), "-"
-    ]
-    # fmt: on
-    try:
-        out = run(cmd, capture_output=True, check=True).stdout
-    except CalledProcessError as e:
-        raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
-
-    return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
-
-
-def load_audio_wav_format(wav_path: str) -> Tuple[np.ndarray, int]:
-    # make sure audio in .wav format
-    assert wav_path.endswith(".wav"), f"Only support .wav format, but got {wav_path}"
-    waveform, sample_rate = soundfile.read(wav_path)
-    assert sample_rate == 16000, f"Only support 16k sample rate, but got {sample_rate}"
-    return waveform, sample_rate
-
-
-@lru_cache(maxsize=None)
-def mel_filters(
-    device: str, n_mels: int, mel_filters_dir: Optional[str] = None
-) -> torch.Tensor:
-    """
-    load the mel filterbank matrix for projecting STFT into a Mel spectrogram.
-    Allows decoupling librosa dependency; saved using:
-
-        np.savez_compressed(
-            "mel_filters.npz",
-            mel_80=librosa.filters.mel(sr=16000, n_fft=400, n_mels=80),
-        )
-    """
-    assert n_mels in {80, 128}, f"Unsupported n_mels: {n_mels}"
-    if mel_filters_dir is None:
-        mel_filters_path = os.path.join(Settings.base_dir, "assets", "mel_filters.npz")
-    else:
-        mel_filters_path = os.path.join(mel_filters_dir, "mel_filters.npz")
-    with np.load(mel_filters_path) as f:
-        return torch.from_numpy(f[f"mel_{n_mels}"]).to(device)
 
 
 class WhisperEncoding:
@@ -167,7 +70,7 @@ class WhisperEncoding:
             TensorInfo("input_lengths", str_dtype_to_trt("int32"), input_lengths.shape),
         ]
 
-        output_info = self.session.infer_shapes(output_list)
+        output_info = (self.session).infer_shapes(output_list)
 
         logger.debug(f"output info {output_info}")
         outputs = {
@@ -176,18 +79,16 @@ class WhisperEncoding:
             )
             for t in output_info
         }
-        logging.info(f'get_audio_features outputs: {outputs["output"].shape}')
         stream = torch.cuda.current_stream()
-        logging.info(f"get_audio_features after stream: {stream}")
         ok = self.session.run(inputs=inputs, outputs=outputs, stream=stream.cuda_stream)
         assert ok, "Engine execution failed"
-        logging.info(f"get_audio_features after run: {ok}")
         stream.synchronize()
         audio_features = outputs["output"]
         return audio_features
 
 
 class WhisperDecoding:
+
     def __init__(
         self,
         engine_dir: Path,
@@ -249,7 +150,7 @@ class WhisperDecoding:
         eot_id: int,
         max_new_tokens: int = 40,
         num_beams: int = 1,
-    ) -> List[List[int]]:
+    ) -> list[list[int]]:
         encoder_input_lengths = torch.tensor(
             [encoder_outputs.shape[1] for x in range(encoder_outputs.shape[0])],
             dtype=torch.int32,
@@ -297,13 +198,13 @@ class WhisperDecoding:
         return output_ids
 
 
-class WhisperTRTLLM:
+class WhisperTRTLLM(metaclass=Singleton):
     def __init__(
         self,
         engine_dir: Path = Settings.whisper_tensorrt_path,
         debug_mode: bool = False,
-        assets_dir: Optional[Path] = Settings.base_dir / "assets",
-        device: Optional[str] = "cuda",
+        assets_dir: Path = Settings.base_dir / "assets",
+        device: str | torch.device | None = "cuda",
     ):
         world_size = 1
         runtime_rank = tensorrt_llm.mpi_rank()
@@ -312,27 +213,24 @@ class WhisperTRTLLM:
         engine_dir = Path(engine_dir)
 
         self.encoder = WhisperEncoding(engine_dir)
-        self.decoder = WhisperDecoding(
-            engine_dir, runtime_mapping, debug_mode=debug_mode
-        )
+        self.decoder = WhisperDecoding(engine_dir, runtime_mapping, debug_mode=False)
         self.n_mels = self.encoder.n_mels
+        # self.tokenizer = get_tokenizer(num_languages=self.encoder.num_languages,
+        #                                tokenizer_dir=assets_dir)
+        self.device = device
         self.tokenizer = get_tokenizer(
             False,
             # num_languages=self.encoder.num_languages,
             language="en",
             task="transcribe",
         )
-        self.device = device
-        self.filters = mel_filters(
-            self.device, self.encoder.n_mels, str(assets_dir) if assets_dir else None
-        )
+        self.filters = mel_filters(self.device, self.encoder.n_mels, assets_dir)
 
     def log_mel_spectrogram(
         self,
-        audio: Union[str, np.ndarray, torch.Tensor],
+        audio: str | np.ndarray | torch.Tensor,
         padding: int = 0,
-        return_duration: bool = True,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, float]]:
+    ) -> torch.Tensor:
         """
         Compute the log-Mel spectrogram of
 
@@ -364,7 +262,7 @@ class WhisperTRTLLM:
             assert isinstance(
                 audio, np.ndarray
             ), f"Unsupported audio type: {type(audio)}"
-            duration = audio.shape[-1] / SAMPLE_RATE
+            audio.shape[-1] / SAMPLE_RATE
             audio = pad_or_trim(audio, N_SAMPLES)
             audio = audio.astype(np.float32)
             audio = torch.from_numpy(audio)
@@ -382,17 +280,14 @@ class WhisperTRTLLM:
         log_spec = torch.clamp(mel_spec, min=1e-10).log10()
         log_spec = torch.maximum(log_spec, log_spec.max() - 8.0)
         log_spec = (log_spec + 4.0) / 4.0
-        if return_duration:
-            return log_spec, duration
-        else:
-            return log_spec
+        return log_spec  # , duration
 
     def process_batch(
         self,
         mel: torch.Tensor,
-        text_prefix: str = "",
+        text_prefix="<|startoftranscript|><|en|><|transcribe|><|notimestamps|>",
         num_beams: int = 1,
-    ) -> List[str]:
+    ) -> list[str]:
         prompt_id = self.tokenizer.encode(
             text_prefix, allowed_special=set(self.tokenizer.special_tokens.keys())
         )
@@ -401,9 +296,7 @@ class WhisperTRTLLM:
         batch_size = mel.shape[0]
         decoder_input_ids = prompt_id.repeat(batch_size, 1)
 
-        logging.info(f"process_batch: {mel.shape}")
         encoder_output = self.encoder.get_audio_features(mel)
-        logging.info(f"encoder_output: {encoder_output.shape}")
         output_ids = self.decoder.generate(
             decoder_input_ids,
             encoder_output,
@@ -420,7 +313,7 @@ class WhisperTRTLLM:
     def transcribe(
         self,
         mel: torch.Tensor,
-        text_prefix: str = "",
+        text_prefix: str = "<|startoftranscript|><|en|><|transcribe|><|notimestamps|>",
         dtype: str = "float16",
         batch_size: int = 1,
         num_beams: int = 1,
@@ -435,22 +328,54 @@ class WhisperTRTLLM:
         return prediction.strip()
 
 
+def decode_wav_file(
+    model,
+    mel,
+    text_prefix="<|startoftranscript|><|en|><|transcribe|><|notimestamps|>",
+    dtype="float16",
+    batch_size=1,
+    num_beams=1,
+    normalizer=None,
+    mel_filters_dir=None,
+):
+
+    mel = mel.type(str_dtype_to_torch(dtype))
+    mel = mel.unsqueeze(0)
+    # repeat the mel spectrogram to match the batch size
+    mel = mel.repeat(batch_size, 1, 1)
+    predictions = model.process_batch(mel, text_prefix, num_beams)
+    prediction = predictions[0]
+
+    # remove all special tokens in the prediction
+    prediction = re.sub(r"<\|.*?\|>", "", prediction)
+    if normalizer:
+        prediction = normalizer(prediction)
+
+    return prediction.strip()
+
+
 class TranscriptionService(metaclass=Singleton):
     def __init__(self):
         self.whisper = WhisperTRTLLM()
 
-    def transcribe(self, client_audio: ClientAudio) -> str:
-        audio = client_audio.last_30_seconds
-        mel, _ = self.whisper.log_mel_spectrogram(audio.copy())
+    def transcribe(self, audio: np.ndarray) -> str:
+        mel = self.whisper.log_mel_spectrogram(audio.copy())
         transcription = self.whisper.transcribe(mel)
         logging.info(f"Transcription: {transcription}")
         return transcription
 
 
 if __name__ == "__main__":
-    whisper = WhisperTRTLLM()
-    mel, _ = whisper.log_mel_spectrogram("assets/audio.wav")
-    print(mel.shape)
-
-    transcription = whisper.transcribe(mel)
-    print(transcription)
+    tensorrt_llm.logger.set_level("info")
+    model = WhisperTRTLLM(
+        Settings.base_dir.parent / "ml" / "whisper_small_en",
+        True,
+        Settings.base_dir.parent / "assets",
+        device="cuda",
+    )
+    mel, total_duration = model.log_mel_spectrogram(
+        str(Settings.base_dir.parent / "assets" / "1221-135766-0002.wav"),
+        return_duration=True,
+    )
+    results = model.transcribe(mel)
+    print(results, total_duration)
