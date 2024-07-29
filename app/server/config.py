@@ -29,6 +29,7 @@ class Settings(metaclass=Singleton):
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY")
 
     sample_rate: int = 16000
     vad_threshold: float = 0.5
@@ -43,7 +44,7 @@ class Settings(metaclass=Singleton):
             },
             "file": {
                 "class": "logging.FileHandler",
-                "level": "INFO",
+                "level": "DEBUG",
                 "filename": base_dir / "logs" / "info.log",
                 "formatter": "standard",
             },
@@ -61,7 +62,11 @@ class Settings(metaclass=Singleton):
                     "console",
                     "file",
                 ],
-                "level": "INFO",
+                "level": (
+                    "INFO"
+                    if os.getenv("TESTING", default="").lower() not in ["true", "1"]
+                    else "DEBUG"
+                ),
                 "propagate": True,
             }
         },
@@ -73,3 +78,6 @@ class Settings(metaclass=Singleton):
             (cls.base_dir / "logs").mkdir()
 
         logging.config.dictConfig(cls.log_config)
+
+    def add_object(self, name: str, obj: object):
+        setattr(self, name, obj)

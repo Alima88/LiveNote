@@ -16,11 +16,18 @@ async def test(ws_uri: str):
         await websocket.send(b"close()")
 
 
+async def print_message(ws: websockets.WebSocketClientProtocol):
+    while True:
+        message = await ws.recv()
+        print(message)
+
+
 async def send_audio(wav_path: str, ws_uri: str):
     if isinstance(wav_path, Path):
         wav_path = str(wav_path)
 
     async with websockets.connect(ws_uri) as websocket:
+        recv_task = asyncio.create_task(print_message(websocket))
         with wave.open(wav_path, "rb") as wav_file:
             # Get basic information about the .wav file
             sample_rate = wav_file.getframerate()
@@ -54,14 +61,16 @@ async def send_audio(wav_path: str, ws_uri: str):
                 # Send frames to WebSocket server
                 await websocket.send(frame_np.tobytes())
 
+        await asyncio.sleep(15)
+        recv_task.cancel()
         await websocket.send(b"close()")
 
 
 async def main():
     client_id = uuid.uuid4()
     print(f"Client ID: {client_id}")
-    # ws_uri = f"wss://wln.inbeet.tech/transcription/ws/{client_id}"
-    ws_uri = f"ws://localhost:8000/transcription/ws/{client_id}"
+    ws_uri = f"wss://wln.inbeet.tech/transcription/ws/{client_id}"
+    # ws_uri = f"ws://localhost:8000/transcription/ws/{client_id}"
 
     audio_file_path = Path(__file__).parent.parent / "assets" / "audio.wav"
     await send_audio(audio_file_path, ws_uri)

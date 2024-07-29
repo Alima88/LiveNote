@@ -9,15 +9,18 @@ import tensorrt_llm
 import tensorrt_llm.logger as logger
 import torch
 import torch.nn.functional as F
+from apps.transcription.whisper_utils import (
+    load_audio,
+    load_audio_wav_format,
+    mel_filters,
+    pad_or_trim,
+)
+from server.config import Settings
 from singleton import Singleton
 from tensorrt_llm._utils import str_dtype_to_torch, str_dtype_to_trt, trt_dtype_to_torch
 from tensorrt_llm.runtime import ModelConfig, SamplingConfig
 from tensorrt_llm.runtime.session import Session, TensorInfo
 from whisper.tokenizer import get_tokenizer
-
-from server.config import Settings
-
-from .whisper_utils import load_audio, load_audio_wav_format, mel_filters, pad_or_trim
 
 SAMPLE_RATE = Settings.sample_rate
 N_FFT = 400
@@ -87,20 +90,73 @@ class WhisperEncoding:
         return audio_features
 
 
+# class WhisperDecoding:
+
+#     def __init__(
+#         self,
+#         engine_dir: Path,
+#         runtime_mapping: tensorrt_llm.Mapping,
+#         debug_mode: bool = False,
+#     ):
+#         self.decoder_config = self.get_config(engine_dir)
+#         self.decoder_generation_session = self.get_session(
+#             engine_dir, runtime_mapping, debug_mode
+#         )
+
+#     def get_config(self, engine_dir: Path) -> OrderedDict:
+#         config_path = engine_dir / "decoder_config.json"
+#         with open(config_path, "r") as f:
+#             config = json.load(f)
+#         decoder_config = OrderedDict()
+#         decoder_config.update(config["plugin_config"])
+#         decoder_config.update(config["builder_config"])
+#         return decoder_config
+
+#     def get_session(
+#         self,
+#         engine_dir: Path,
+#         runtime_mapping: tensorrt_llm.Mapping,
+#         debug_mode: bool = False,
+#     ) -> tensorrt_llm.runtime.GenerationSession:
+#         dtype = self.decoder_config["precision"]
+#         serialize_path = engine_dir / f"whisper_decoder_{dtype}_tp1_rank0.engine"
+#         with open(serialize_path, "rb") as f:
+#             decoder_engine_buffer = f.read()
+
+#         decoder_model_config = ModelConfig(
+#             max_batch_size=self.decoder_config["max_batch_size"],
+#             max_beam_width=self.decoder_config["max_beam_width"],
+#             num_heads=self.decoder_config["num_heads"],
+#             num_kv_heads=self.decoder_config["num_heads"],
+#             hidden_size=self.decoder_config["hidden_size"],
+#             vocab_size=self.decoder_config["vocab_size"],
+#             num_layers=self.decoder_config["num_layers"],
+#             gpt_attention_plugin=self.decoder_config["gpt_attention_plugin"],
+#             remove_input_padding=self.decoder_config["remove_input_padding"],
+#             cross_attention=self.decoder_config["cross_attention"],
+#             has_position_embedding=self.decoder_config["has_position_embedding"],
+#             has_token_type_embedding=self.decoder_config["has_token_type_embedding"],
+#         )
+#         decoder_generation_session = tensorrt_llm.runtime.GenerationSession(
+#             decoder_model_config,
+#             decoder_engine_buffer,
+#             runtime_mapping,
+#             debug_mode=debug_mode,
+#         )
+
+#         return decoder_generation_session
+
+
 class WhisperDecoding:
 
-    def __init__(
-        self,
-        engine_dir: Path,
-        runtime_mapping: tensorrt_llm.Mapping,
-        debug_mode: bool = False,
-    ):
+    def __init__(self, engine_dir, runtime_mapping, debug_mode=False):
+
         self.decoder_config = self.get_config(engine_dir)
         self.decoder_generation_session = self.get_session(
             engine_dir, runtime_mapping, debug_mode
         )
 
-    def get_config(self, engine_dir: Path) -> OrderedDict:
+    def get_config(self, engine_dir):
         config_path = engine_dir / "decoder_config.json"
         with open(config_path, "r") as f:
             config = json.load(f)
@@ -109,12 +165,7 @@ class WhisperDecoding:
         decoder_config.update(config["builder_config"])
         return decoder_config
 
-    def get_session(
-        self,
-        engine_dir: Path,
-        runtime_mapping: tensorrt_llm.Mapping,
-        debug_mode: bool = False,
-    ) -> tensorrt_llm.runtime.GenerationSession:
+    def get_session(self, engine_dir, runtime_mapping, debug_mode=False):
         dtype = self.decoder_config["precision"]
         serialize_path = engine_dir / f"whisper_decoder_{dtype}_tp1_rank0.engine"
         with open(serialize_path, "rb") as f:
@@ -209,11 +260,14 @@ class WhisperTRTLLM(metaclass=Singleton):
         world_size = 1
         runtime_rank = tensorrt_llm.mpi_rank()
         runtime_mapping = tensorrt_llm.Mapping(world_size, runtime_rank)
+
         torch.cuda.set_device(runtime_rank % runtime_mapping.gpus_per_node)
         engine_dir = Path(engine_dir)
 
         self.encoder = WhisperEncoding(engine_dir)
-        self.decoder = WhisperDecoding(engine_dir, runtime_mapping, debug_mode=False)
+        self.decoder = WhisperDecoding(
+            engine_dir, runtime_mapping, debug_mode=debug_mode
+        )
         self.n_mels = self.encoder.n_mels
         # self.tokenizer = get_tokenizer(num_languages=self.encoder.num_languages,
         #                                tokenizer_dir=assets_dir)
@@ -228,7 +282,7 @@ class WhisperTRTLLM(metaclass=Singleton):
 
     def log_mel_spectrogram(
         self,
-        audio: str | np.ndarray | torch.Tensor,
+        audio: str | Path | np.ndarray | torch.Tensor,
         padding: int = 0,
     ) -> torch.Tensor:
         """
@@ -236,7 +290,7 @@ class WhisperTRTLLM(metaclass=Singleton):
 
         Parameters
         ----------
-        audio: Union[str, np.ndarray, torch.Tensor], shape = (*)
+        audio: Union[str, Path, np.ndarray, torch.Tensor], shape = (*)
             The path to audio or either a NumPy array or Tensor containing the audio waveform in 16 kHz
 
         n_mels: int
@@ -254,6 +308,8 @@ class WhisperTRTLLM(metaclass=Singleton):
             A Tensor that contains the Mel spectrogram
         """
         if not torch.is_tensor(audio):
+            if isinstance(audio, Path):
+                audio = str(audio)
             if isinstance(audio, str):
                 if audio.endswith(".wav"):
                     audio, _ = load_audio_wav_format(audio)
@@ -357,6 +413,7 @@ def decode_wav_file(
 class TranscriptionService(metaclass=Singleton):
     def __init__(self):
         self.whisper = WhisperTRTLLM()
+        tensorrt_llm.logger.set_level("info")
 
     def transcribe(self, audio: np.ndarray) -> str:
         mel = self.whisper.log_mel_spectrogram(audio.copy())
@@ -365,17 +422,23 @@ class TranscriptionService(metaclass=Singleton):
         return transcription
 
 
-if __name__ == "__main__":
+def main():
     tensorrt_llm.logger.set_level("info")
+    Settings.config_logger()
     model = WhisperTRTLLM(
-        Settings.base_dir.parent / "ml" / "whisper_small_en",
-        True,
-        Settings.base_dir.parent / "assets",
+        Settings.whisper_tensorrt_path,
+        False,
+        Settings.base_dir / "assets",
         device="cuda",
     )
-    mel, total_duration = model.log_mel_spectrogram(
-        str(Settings.base_dir.parent / "assets" / "1221-135766-0002.wav"),
-        return_duration=True,
+    print("Model loaded")
+    mel = model.log_mel_spectrogram(
+        Settings.base_dir / "assets" / "1221-135766-0002.wav",
     )
+    print(mel.shape)
     results = model.transcribe(mel)
-    print(results, total_duration)
+    print(results)
+
+
+if __name__ == "__main__":
+    main()

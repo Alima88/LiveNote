@@ -1,15 +1,91 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
+from multiprocessing import Manager, Process, Queue
 
 import fastapi
+from apps.llm.routes import router as llm_router
+from apps.transcription.handlers import user_websocket_send_handler
+from apps.transcription.routes import router as transcription_router
+from core import exceptions
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from apps.llm.routes import router as llm_router
-from apps.transcription.routes import router as transcription_router
-from core import exceptions
-
 from . import config, db
+
+
+def setup_processes(app: fastapi.FastAPI):
+    clients = Manager().dict()
+    vad_queues = {"source": Queue(), "result": Queue()}
+    transcription_queues = {"source": Queue(), "result": Queue()}
+    llm_queues = {"source": Queue(), "result": Queue()}
+    config.Settings().clients = clients
+    config.Settings().vad_queues = vad_queues
+    config.Settings().transcription_queues = transcription_queues
+    config.Settings().llm_queues = llm_queues
+
+    from apps.transcription.services import run_llm, run_transcription, run_vad
+
+    processes = [
+        Process(
+            target=run_vad, args=(clients, vad_queues["source"], vad_queues["result"])
+        ),
+        Process(
+            target=run_transcription,
+            args=(
+                clients,
+                transcription_queues["source"],
+                transcription_queues["result"],
+            ),
+        ),
+        Process(
+            target=run_llm, args=(clients, llm_queues["source"], llm_queues["result"])
+        ),
+    ]
+    app.state.processes = processes
+    for process in processes:
+        process.start()
+
+
+async def setup_connection_handlers(app: fastapi.FastAPI):
+    transcription_sent_queue = asyncio.Queue()
+    summary_sent_queue = asyncio.Queue()
+
+    app.state.handlers = [
+        asyncio.create_task(
+            user_websocket_send_handler(transcription_sent_queue, "transcription")
+        ),
+        asyncio.create_task(user_websocket_send_handler(summary_sent_queue, "summary")),
+    ]
+
+    config.Settings().transcription_sent_queue = transcription_sent_queue
+    config.Settings().summary_sent_queue = summary_sent_queue
+
+
+def empty_queue(queue: Queue):
+    while not queue.empty():
+        queue.get()
+
+
+def terminate_processes(processes: list[Process]):
+    empty_queue(config.Settings().vad_queues["source"])
+    empty_queue(config.Settings().vad_queues["result"])
+    empty_queue(config.Settings().transcription_queues["source"])
+    empty_queue(config.Settings().transcription_queues["result"])
+    empty_queue(config.Settings().llm_queues["source"])
+    empty_queue(config.Settings().llm_queues["result"])
+
+    sources = [
+        config.Settings().vad_queues["source"],
+        config.Settings().transcription_queues["source"],
+        config.Settings().llm_queues["source"],
+    ]
+    for source_queue in sources:
+        source_queue.put(("terminate", None, None))
+
+    for process in processes:
+        # process.terminate()
+        process.join()
 
 
 @asynccontextmanager
@@ -18,8 +94,15 @@ async def lifespan(app: fastapi.FastAPI):  # type: ignore
     await db.init_db()
     config.Settings.config_logger()
 
+    setup_processes(app)
+    await setup_connection_handlers(app)
+
     logging.info("Startup complete")
     yield
+
+    terminate_processes(app.state.processes)
+    for handler in app.state.handlers:
+        handler.cancel()
     logging.info("Shutdown complete")
 
 

@@ -60,9 +60,9 @@ fi
 
 # ./build-mistral.sh
 
-if [ ! -d "./ml/$LLM_MODEL" ] || [ -z "$(ls -A ./ml/$LLM_MODEL)" ]; then
-    echo "$LLM_MODEL directory does not exist or is empty. Running build-phi.sh..."
-    ./scripts/build-phi.sh $LLM_MODEL
-else
-    echo "$LLM_MODEL directory exists and is not empty. Skipping build-phi.sh..."
-fi
+# if [ ! -d "./ml/$LLM_MODEL" ] || [ -z "$(ls -A ./ml/$LLM_MODEL)" ]; then
+#     echo "$LLM_MODEL directory does not exist or is empty. Running build-phi.sh..."
+#     ./scripts/build-phi.sh $LLM_MODEL
+# else
+#     echo "$LLM_MODEL directory exists and is not empty. Skipping build-phi.sh..."
+# fi

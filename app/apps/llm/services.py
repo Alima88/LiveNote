@@ -7,12 +7,11 @@ from typing import Callable, Generator, Optional, Union
 
 import tensorrt_llm
 import torch
+from server.config import Settings
 from tensorrt_llm.builder import get_engine_version
 from tensorrt_llm.logger import logger
 from tensorrt_llm.runtime import ModelRunner
 from transformers import AutoTokenizer, PreTrainedTokenizer
-
-from server.config import Settings
 
 
 def read_model_name(engine_dir: str) -> tuple[str, Optional[str]]:

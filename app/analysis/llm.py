@@ -1,8 +1,9 @@
-import time
 import json
+import pickle
+import time
+
 import numpy as np
 import pandas as pd
-
 from apps.llm.base_llm import LLM
 from server.config import Settings
 
@@ -63,6 +64,8 @@ def run(temperature):
     models_results = {k: models_results[k] for k in sorted(models_results)}
     with open(f"analysis/result_{temperature}.json", "w") as f:
         json.dump(models_results, f, indent=4)
+    with open(f"analysis/outputs_{temperature}.pkl", "w") as f:
+        pickle.dump(outputs, f)
     with open(f"analysis/outputs_{temperature}.json", "w") as f:
         json.dump(outputs, f, indent=4)
 
@@ -72,5 +75,5 @@ def run(temperature):
     print(f"Results saved {temperature}")
 
 
-run(0.0)
+# run(0.0)
 run(0.3)

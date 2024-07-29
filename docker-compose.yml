@@ -3,6 +3,7 @@ services:
     build: app
     restart: unless-stopped
     command: ./scripts/run.sh
+    # command: 'python3 trt.py'
     env_file:
       - .env
     volumes:
