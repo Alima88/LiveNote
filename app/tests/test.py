@@ -1,4 +1,7 @@
 import asyncio
+import logging
+import json
+import time
 import uuid
 import wave
 from pathlib import Path
@@ -6,23 +9,32 @@ from pathlib import Path
 import numpy as np
 import websockets
 
-
-async def test(ws_uri: str):
-    i = 0
-    async with websockets.connect(ws_uri) as websocket:
-        await websocket.send(f"Hello, world! {i}".encode("utf-8"))
-        print(i)
-        await websocket.recv()
-        await websocket.send(b"close()")
-
+start_time = 0
 
 async def print_message(ws: websockets.WebSocketClientProtocol):
-    while True:
-        message = await ws.recv()
-        print(message)
+    try:
+        while True:
+            message = await ws.recv()
+            data = json.loads(message)
+            logging.info(
+                "\n".join(
+                    [
+                        "-" * 50,"",
+                        f"{time.time() - start_time:.2f}s",
+                        "",
+                        f"{data['type']}:",
+                        f"{data['data']}",
+                        "",
+                        "-" * 50,
+                    ]
+                )
+            )
+    except asyncio.CancelledError:
+        pass
 
 
 async def send_audio(wav_path: str, ws_uri: str):
+    global start_time
     if isinstance(wav_path, Path):
         wav_path = str(wav_path)
 
@@ -34,11 +46,12 @@ async def send_audio(wav_path: str, ws_uri: str):
             num_frames = wav_file.getnframes()
             sample_width = wav_file.getsampwidth()
 
-            print(
+            logging.info(
                 f"Sample rate: {sample_rate}, Number of frames: {num_frames}, Sample width: {sample_width}, "
             )
 
             # Read and send frames in chunks
+            start_time = time.time()
             chunk_size = 1024
             for _ in range(0, num_frames, chunk_size):
                 frames = wav_file.readframes(chunk_size)
@@ -60,21 +73,27 @@ async def send_audio(wav_path: str, ws_uri: str):
 
                 # Send frames to WebSocket server
                 await websocket.send(frame_np.tobytes())
+                logging.info(f"Sent {_/sample_rate}, {len(frame_np.tobytes())} bytes")
+                await asyncio.sleep(chunk_size / sample_rate)
 
-        await asyncio.sleep(15)
+        await asyncio.sleep(5)
         recv_task.cancel()
         await websocket.send(b"close()")
 
 
 async def main():
-    client_id = uuid.uuid4()
-    print(f"Client ID: {client_id}")
-    ws_uri = f"wss://wln.inbeet.tech/transcription/ws/{client_id}"
+    client_id = uuid.UUID("11112222-3333-4444-5555-666677778888")  # uuid.uuid4()
+    logging.info(f"Client ID: {client_id}")
+    s_url = "s://wln.inbeet.tech"
+
+    ws_uri = f"ws{s_url}/ws/{client_id}"
     # ws_uri = f"ws://localhost:8000/transcription/ws/{client_id}"
 
-    audio_file_path = Path(__file__).parent.parent / "assets" / "audio.wav"
+    audio_file_path = Path(__file__).parent.parent / "assets" / "audios" / "audio.wav"
     await send_audio(audio_file_path, ws_uri)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
     asyncio.run(main())

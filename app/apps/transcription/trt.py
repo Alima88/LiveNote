@@ -9,6 +9,12 @@ import tensorrt_llm
 import tensorrt_llm.logger as logger
 import torch
 import torch.nn.functional as F
+from singleton import Singleton
+from tensorrt_llm._utils import str_dtype_to_torch, str_dtype_to_trt, trt_dtype_to_torch
+from tensorrt_llm.runtime import ModelConfig, SamplingConfig
+from tensorrt_llm.runtime.session import Session, TensorInfo
+from whisper.tokenizer import get_tokenizer
+
 from apps.transcription.whisper_utils import (
     load_audio,
     load_audio_wav_format,
@@ -16,11 +22,6 @@ from apps.transcription.whisper_utils import (
     pad_or_trim,
 )
 from server.config import Settings
-from singleton import Singleton
-from tensorrt_llm._utils import str_dtype_to_torch, str_dtype_to_trt, trt_dtype_to_torch
-from tensorrt_llm.runtime import ModelConfig, SamplingConfig
-from tensorrt_llm.runtime.session import Session, TensorInfo
-from whisper.tokenizer import get_tokenizer
 
 SAMPLE_RATE = Settings.sample_rate
 N_FFT = 400
@@ -412,10 +413,50 @@ def decode_wav_file(
 
 class TranscriptionService(metaclass=Singleton):
     def __init__(self):
-        self.whisper = WhisperTRTLLM()
-        tensorrt_llm.logger.set_level("info")
+        # self.whisper = WhisperTRTLLM()
+        # tensorrt_llm.logger.set_level("info")
+        pass
 
     def transcribe(self, audio: np.ndarray) -> str:
+        import wave
+        from io import BytesIO
+
+        from groq import Groq
+
+        audio_byte = BytesIO()
+        int_frames: np.ndarray = (audio / max(audio) * 32767).astype(np.int16)
+
+        with wave.open(audio_byte, "wb") as wav_file:
+            num_channels = 1
+            sample_width = 2  # 16 bits = 2 bytes
+            frame_rate = Settings.sample_rate
+            wav_file.setnchannels(num_channels)
+            wav_file.setsampwidth(sample_width)
+            wav_file.setframerate(frame_rate)
+            wav_file.writeframes(int_frames.tobytes())
+
+        audio_byte.seek(0)
+
+        with open("logs/output.wav", "wb") as f:
+            f.write(audio_byte.read())
+
+        # Reset the BytesIO object pointer to the beginning after saving
+        audio_byte.seek(0)
+
+        client = Groq(api_key=Settings.GROQ_API_KEY)
+
+        transcription = client.audio.transcriptions.create(
+            file=("sample.wav", audio_byte.read()),
+            model="whisper-large-v3",
+            prompt="Specify context or spelling",  # Optional
+            response_format="json",  # Optional
+            language="en",  # Optional
+            temperature=0.0,  # Optional
+        )
+        print(transcription.text)
+
+        return transcription.text
+
         mel = self.whisper.log_mel_spectrogram(audio.copy())
         transcription = self.whisper.transcribe(mel)
         logging.info(f"Transcription: {transcription}")

@@ -21,7 +21,7 @@ class Settings(metaclass=Singleton):
 
     testing: bool = os.getenv("TESTING", default=False)
 
-    llm_model: str = os.getenv("LLM_MODEL", default="phi-2")
+    llm_model: str = os.getenv("LLM_MODEL", default="groq/llama-3.1-70b-versatile")
     whisper_tensorrt_path: Path = base_dir / "ml" / "whisper_small_en"
     phi_tensorrt_path: Path = base_dir / "ml" / "Phi-3-mini-4k-instruct"
     phi_tokenizer_path: str = Path(phi_tensorrt_path) / "tokenizer"

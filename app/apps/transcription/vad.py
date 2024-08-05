@@ -8,9 +8,10 @@ import numpy as np
 import onnxruntime
 import requests
 import torch
-from server.config import Settings
 from singleton import Singleton
 from torch import Tensor
+
+from server.config import Settings
 
 
 class VoiceActivityDetection(metaclass=Singleton):

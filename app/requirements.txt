@@ -13,3 +13,7 @@ openai
 groq
 vertexai
 google-generativeai
+
+aiofiles
+aiocache
+aiohttp

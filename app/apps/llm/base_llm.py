@@ -5,9 +5,10 @@ import openai
 import torch
 import vertexai
 from google.auth import default, transport
-from server.config import Settings
 from singleton import Singleton
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+from server.config import Settings
 
 
 class PHI(metaclass=Singleton):

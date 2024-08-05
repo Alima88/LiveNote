@@ -5,8 +5,9 @@ from multiprocessing import Queue
 
 import numpy as np
 import torch
-from server.config import Settings
 from singleton import Singleton
+
+from server.config import Settings
 
 from .llm import LLMService
 from .schemas import ClientAudio
@@ -21,8 +22,8 @@ def run_vad(
     vad = VoiceActivityDetection()
 
     while True:
-        new_task: tuple[str, np.ndarray, datetime] = source_queue.get()
-        client_id, frame_np, _ = new_task
+        new_task: tuple[str, np.ndarray, datetime, dict] = source_queue.get()
+        client_id, frame_np, _, _ = new_task
         if client_id is None or client_id == "terminate":
             break
 
@@ -56,8 +57,8 @@ def run_transcription(
     Settings.config_logger()
 
     while True:
-        new_task: tuple[str, np.ndarray, datetime] = source_queue.get()
-        client_id, frame_np, at = new_task
+        new_task: tuple[str, np.ndarray, datetime, dict] = source_queue.get()
+        client_id, frame_np, at, metadata = new_task
         if client_id is None or client_id == "terminate":
             break
 
@@ -69,10 +70,12 @@ def run_transcription(
         if at and at < client_audio.transcribed_at:
             logging.info(f"Skipping transcription for {client_id} for {at}")
             continue
-        client_audio.transcribed_at = datetime.now()
+        transcribed_at = datetime.now()
 
-        frame_np: np.ndarray = client_audio.segments_data[-1]
-        logging.debug(f"Transcription for {client_id} {frame_np.shape}")
+        if metadata.get("eos"):
+            frame_np: np.ndarray = client_audio.segments_data[-1]
+        else:
+            frame_np: np.ndarray = client_audio.data
 
         try:
             text = TranscriptionService().transcribe(frame_np)
@@ -80,11 +83,16 @@ def run_transcription(
             logging.error(f"Error in transcription: {e}")
             text = ""
 
+        client_audio: ClientAudio = clients.get(client_id)
+        client_audio.transcribed_at = transcribed_at
         client_audio.text = text
-        client_audio.segments.append(text)
+        if metadata.get("eos"):
+            client_audio.segments.append(text)
+            text = "\n".join(client_audio.segments)
         clients[client_id] = client_audio
-        result_queue.put((client_id, text))
-        logging.debug(f"Transcription completed for {client_id}: {text}")
+        result_queue.put((client_id, text, metadata))
+
+        # logging.info(f"Transcription completed for {client_id}, {text}")
 
 
 def run_llm(
@@ -93,8 +101,8 @@ def run_llm(
     Settings.config_logger()
 
     while True:
-        new_task: tuple[str, str, datetime] = source_queue.get()
-        client_id, text, at = new_task
+        new_task: tuple[str, str, datetime, dict] = source_queue.get()
+        client_id, text, at, metadata = new_task
         if client_id is None or client_id == "terminate":
             break
 
@@ -106,21 +114,29 @@ def run_llm(
         if at and at < client_audio.summerized_at:
             logging.info(f"Skipping LLM for {client_id} for {at}")
             continue
-        client_audio.summerized_at = datetime.now()
+        summerized_at = datetime.now()
 
-        logging.debug(f"LLM for {client_id}")
+        if metadata.get("eos"):
+            text: str = "\n".join(client_audio.segments) 
+        else:
+            text: str = "\n".join(client_audio.segments) + text
 
-        text: str = "\n".join(client_audio.segments)
+        summary: str = ""
+        logging.debug(f"LLM summarization for {client_id} {text}")
         try:
-            summary = LLMService().summerize(text)
+            if text:
+                summary = LLMService().summerize(text)
         except Exception as e:
             logging.error(f"Error in LLM: {e}")
-            summary = ""
 
+        if not summary:
+            continue
+
+        client_audio: ClientAudio = clients.get(client_id)
+        client_audio.summerized_at = summerized_at
         client_audio.summary = summary
         clients[client_id] = client_audio
-        result_queue.put((client_id, summary))
-        logging.debug(f"LLM completed for {client_id}: {summary}")
+        result_queue.put((client_id, summary, summerized_at, metadata))
 
 
 class VoiceReceiverService(metaclass=Singleton):
@@ -145,7 +161,6 @@ class VoiceReceiverService(metaclass=Singleton):
         import wave
 
         data: np.ndarray = np.concatenate(client_audio.segments_data, axis=0)
-        logging.debug(f"save audio data shape {data.shape}")
 
         try:
             int_frames: np.ndarray = (data * 32767).astype(np.int16)
@@ -161,6 +176,23 @@ class VoiceReceiverService(metaclass=Singleton):
         except Exception as e:
             logging.error(f"Error saving audio: {e}")
 
+    async def process_audio_frame(self, data: bytes, client_id: str) -> None:
+        try:
+            frame_np = np.frombuffer(data[: len(data) // 4 * 4], dtype=np.float32)
+            self.vad_queue.put((client_id, frame_np, datetime.now(), {}))
+            asyncio.create_task(self.handle_vad_result(frame_np))
+        except Exception as e:
+            logging.error(f"Error processing audio frame: {len(data)} {e}")
+        # await self.handle_vad_result(frame_np)
+
+    async def handle_vad_result(self, frame_np: np.ndarray) -> None:
+        client_id, speech_prob = self.vad_result_queue.get()
+
+        if speech_prob > Settings.vad_threshold:
+            await self.add_audio_frame(client_id, frame_np)
+        else:
+            await self.no_voice_activity(client_id)
+
     async def add_audio_frame(self, client_id: str, frame_np: np.ndarray) -> None:
         if self.clients_audios.get(client_id) is None:
             client_audio = ClientAudio(client_id=client_id, data=frame_np)
@@ -173,57 +205,67 @@ class VoiceReceiverService(metaclass=Singleton):
         client_audio.add_frames(frame_np)
         self.clients_audios[client_id] = client_audio
 
-    async def process_audio_frame(self, data: bytes, client_id: str) -> None:
-        frame_np = np.frombuffer(data, dtype=np.float32)
-        self.vad_queue.put((client_id, frame_np, datetime.now()))
-        asyncio.create_task(self.handle_vad_result(frame_np))
-        # await self.handle_vad_result(frame_np)
+        if (
+            self.transcription_queue.qsize() == 0
+            and True
+            # and client_audio.data.shape[0] > Settings.sample_rate
+        ):
+            self.transcription_queue.put(
+                (client_id, frame_np, datetime.now(), {"eos": False})
+            )
 
-    async def handle_vad_result(self, frame_np: np.ndarray) -> None:
-        client_id, speech_prob = self.vad_result_queue.get()
-
-        if speech_prob > Settings.vad_threshold:
-            await self.add_audio_frame(client_id, frame_np)
-        else:
-            await self.no_voice_activity(client_id)
+        if len(client_audio.data) > Settings.sample_rate * 5:
+            await self.no_voice_activity(client_id, -1)
 
     async def no_voice_activity(
-        self, client_id: str, max_silnet_chunks: int = 3
+        self, client_id: str, max_silnet_chunks: int = 3, eos: bool = True
     ) -> None:
         if self.clients_audios.get(client_id) is None:
-            logging.debug(f"no_voice_activity for {client_id}, no audio data")
+            logging.debug(f"Client {client_id} not found")
             return
 
-        client_audio = self.clients_audios[client_id]
+        client_audio = self.clients_audios.get(client_id)
         client_audio.no_voice_activity_chunks += 1
 
         if client_audio.no_voice_activity_chunks < max_silnet_chunks:
-            logging.debug(
-                f"no_voice_activity for {client_id}, {client_audio.no_voice_activity_chunks}"
-            )
             return
 
         if client_audio.eos:
             return
 
-        logging.debug(f"no_voice_activity start process for {client_id}, {max_silnet_chunks}")
-        client_audio.eos = True
-        client_audio.segments_data.append(client_audio.data)
-        client_audio.data = None
+        if eos:
+            # client_audio.eos = True
+            client_audio.eos = True
+            client_audio.segments_data.append(client_audio.data)
+            client_audio.data = None
+
+        else:
+            if client_audio.segments_data:
+                client_audio.segments_data[-1] = client_audio.data
+                logging.info(
+                    f"no_voice_activity {client_id} {len(client_audio.data)=}, {len(client_audio.segments_data)=}, {len(client_audio.segments_data[-1])=}"
+                )
+            else:
+                client_audio.segments_data.append(client_audio.data)
+
         self.clients_audios[client_id] = client_audio
 
-        # self.save_audio(client_audio)
-        self.transcription_queue.put((client_id, client_audio.segments_data[-1], datetime.now()))
+        logging.debug(f"save for client {client_id}")
+        self.save_audio(client_audio)
 
-        asyncio.create_task(self.handle_transcription_result(client_id))
+        if self.transcription_queue.qsize() == 1:
+            new_task: tuple[str, np.ndarray, datetime, dict] = (
+                self.transcription_queue.get()
+            )
+            client_id, frame_np, at, metadata = new_task
+            if metadata.get("eos"):
+                self.transcription_queue.put((client_id, frame_np, at, {"eos": True}))
 
-    async def handle_transcription_result(self, client_id: str) -> None:
-        client_id, text = self.transcription_queue_result.get()
-        self.llm_queue.put((client_id, text, datetime.now()))
-        await self.transcription_sent_queue.put((client_id, text, datetime.now()))
+        self.transcription_queue.put(
+            (client_id, client_audio.segments_data[-1], datetime.now(), {"eos": eos})
+        )
 
-        asyncio.create_task(self.handle_llm_result(client_id))
+        # asyncio.create_task(self.handle_transcription_result(client_id))
 
-    async def handle_llm_result(self, client_id: str) -> None:
-        client_id, summary = self.llm_queue_result.get()
-        await self.summary_sent_queue.put((client_id, summary, datetime.now()))
+    def pop_clients_audios(self, cliend_id: str) -> None:
+        self.clients_audios.pop(cliend_id, None)

@@ -1,4 +1,4 @@
-services:  
+services:
   app:
     build: app
     restart: unless-stopped
@@ -8,13 +8,35 @@ services:
       - .env
     volumes:
       - ./app:/app
+      - ./app/logs:/app/logs
+      - ./app/ml:/app/ml
+      - ./app/assets:/app/assets
     deploy:
       resources:
         reservations:
           devices:
-            - capabilities: ["gpu"]
+            - capabilities: [ "gpu" ]
     ports:
       - "3000:3000"
+    networks:
+      - traefik-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${PROJECT_NAME}-api.entrypoints=web"
+      - "traefik.http.routers.${PROJECT_NAME}-api.rule=Host(`${DOMAIN}`) && (PathPrefix(`/ws`) || PathPrefix(`/api`))"
+      # - "traefik.http.routers.${PROJECT_NAME}-api.middlewares=https-redirect"
+      - "traefik.http.routers.${PROJECT_NAME}-api-secure.entrypoints=websecure"
+      - "traefik.http.routers.${PROJECT_NAME}-api-secure.rule=Host(`${DOMAIN}`) && (PathPrefix(`/ws`) || PathPrefix(`/api`))"
+      - "traefik.http.routers.${PROJECT_NAME}-api-secure.tls=true"
+      - "traefik.http.routers.${PROJECT_NAME}-api-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.${PROJECT_NAME}-api.loadbalancer.server.port=8000"
+      - "traefik.docker.network=traefik-net"
+
+  dashboard:
+    build: dashboard
+    restart: unless-stopped
+    environment:
+      - "WS_URI=wss://wln.inbeet.tech/ws/"
     networks:
       - traefik-net
     labels:
@@ -26,7 +48,7 @@ services:
       - "traefik.http.routers.${PROJECT_NAME}-secure.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.${PROJECT_NAME}-secure.tls=true"
       - "traefik.http.routers.${PROJECT_NAME}-secure.tls.certresolver=letsencrypt"
-      - "traefik.http.services.${PROJECT_NAME}.loadbalancer.server.port=8000"
+      - "traefik.http.services.${PROJECT_NAME}.loadbalancer.server.port=3000"
       - "traefik.docker.network=traefik-net"
 
 networks:

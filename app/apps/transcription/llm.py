@@ -7,8 +7,9 @@ import torch
 import vertexai
 from google import generativeai as genai
 from google.auth import default, transport
-from server.config import Settings
 from singleton import Singleton
+
+from server.config import Settings
 
 
 class PHI(metaclass=Singleton):
@@ -220,7 +221,7 @@ class LLM:
 
 class LLMService(metaclass=Singleton):
     def __init__(self) -> None:
-        self.llm = LLM()  # model=Settings.llm_model)
+        self.llm = LLM(model=Settings.llm_model)
 
     def prompt(
         self, text: str, system_prompt: str | None = None, temperature: float = 0

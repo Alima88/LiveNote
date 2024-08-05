@@ -4,12 +4,13 @@ from contextlib import asynccontextmanager
 from multiprocessing import Manager, Process, Queue
 
 import fastapi
-from apps.llm.routes import router as llm_router
-from apps.transcription.handlers import user_websocket_send_handler
-from apps.transcription.routes import router as transcription_router
-from core import exceptions
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+from apps.llm.routes import router as llm_router
+from apps.transcription import handlers
+from apps.transcription.routes import router as transcription_router
+from core import exceptions
 
 from . import config, db
 
@@ -53,9 +54,26 @@ async def setup_connection_handlers(app: fastapi.FastAPI):
 
     app.state.handlers = [
         asyncio.create_task(
-            user_websocket_send_handler(transcription_sent_queue, "transcription")
+            handlers.user_websocket_send_handler(
+                transcription_sent_queue, "transcription"
+            )
         ),
-        asyncio.create_task(user_websocket_send_handler(summary_sent_queue, "summary")),
+        asyncio.create_task(
+            handlers.user_websocket_send_handler(summary_sent_queue, "summary")
+        ),
+        asyncio.create_task(
+            handlers.handle_transcription_result(
+                config.Settings().transcription_queues.get("result"),
+                transcription_sent_queue,
+                config.Settings().llm_queues.get("source"),
+            )
+        ),
+        asyncio.create_task(
+            handlers.handle_llm_result(
+                config.Settings().llm_queues.get("result"),
+                summary_sent_queue,
+            )
+        ),
     ]
 
     config.Settings().transcription_sent_queue = transcription_sent_queue
@@ -81,7 +99,7 @@ def terminate_processes(processes: list[Process]):
         config.Settings().llm_queues["source"],
     ]
     for source_queue in sources:
-        source_queue.put(("terminate", None, None))
+        source_queue.put(("terminate", None, None, None))
 
     for process in processes:
         # process.terminate()
@@ -166,6 +184,6 @@ app.include_router(llm_router)
 app.include_router(transcription_router)
 
 
-@app.get("/")
+@app.get("/api/health")
 async def index():
-    return {"message": "Hello World!"}
+    return {"status": "ok"}
