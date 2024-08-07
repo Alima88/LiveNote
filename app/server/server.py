@@ -138,6 +138,8 @@ app = fastapi.FastAPI(
         "url": "https://github.com/Alima88/LiveNote/blob/main/LICENSE",
     },
     lifespan=lifespan,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
 )
 
 
@@ -184,6 +186,11 @@ app.include_router(llm_router)
 app.include_router(transcription_router)
 
 
+#@app.get("/api/docs")
+async def index():
+    return app
+
 @app.get("/api/health")
 async def index():
     return {"status": "ok"}
+

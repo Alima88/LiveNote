@@ -1,21 +1,26 @@
 import dataclasses
 from datetime import datetime
-
+from pydantic import BaseModel
 import numpy as np
 
 from server.config import Settings
 
 
+class ClientAudioSchema(BaseModel):
+    texts: list[str] = []
+
+
 @dataclasses.dataclass
 class ClientAudio:
     client_id: str
-    data: np.ndarray
+    # data: np.ndarray
+    data: list[bytes] = dataclasses.field(default_factory=list)
     prompt: str | None = None
     offset: float = 0.0
     eos: bool = False
     no_voice_activity_chunks: int = 0
 
-    segments_data: list[np.ndarray] = dataclasses.field(default_factory=list)
+    segments_data: list[bytes] = dataclasses.field(default_factory=list)
     segments: list[str] = dataclasses.field(default_factory=list)
 
     text: str = ""
@@ -29,7 +34,7 @@ class ClientAudio:
 
     @property
     def is_empty(self) -> bool:
-        return self.data is None
+        return bool(self.data)
 
     @property
     def last_30_seconds(self) -> np.ndarray:
@@ -39,22 +44,11 @@ class ClientAudio:
     def last_30_seconds_duration(self) -> np.ndarray:
         return self.last_30_seconds.shape[0] / Settings.sample_rate
 
-    def add_frames(self, frame_np: np.ndarray):
-        """
-        Add audio frames to the ongoing audio stream buffer.
+    def add_frames(self, frame: bytes):
+        self.data.append(frame)
+        return
 
-        This method is responsible for maintaining the audio stream buffer, allowing the continuous addition
-        of audio frames as they are received. It also ensures that the buffer does not exceed a specified size
-        to prevent excessive memory usage.
-
-        If the buffer size exceeds a threshold (45 seconds of audio data), it discards the oldest 30 seconds
-        of audio data to maintain a reasonable buffer size. If the buffer is empty, it initializes it with the provided
-        audio frame. The audio stream buffer is used for real-time processing of audio data for transcription.
-
-        Args:
-            frame_np (numpy.ndarray): The audio frame data as a NumPy array.
-
-        """
+        frame_np: np.ndarray
 
         if self.data is None:
             self.data = frame_np.copy()

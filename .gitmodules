@@ -1,3 +1,7 @@
 [submodule "dashboard"]
 	path = dashboard
-	url = https://github.com/Alima88/live-note-page.git
+	url = https://github.com/ali8molaee/live-note-page.git
+
+[submodule "recorder"]
+	path = server
+	url = https://github.com/ali8molaee/audio-recorder.git

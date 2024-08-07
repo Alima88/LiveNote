@@ -84,12 +84,13 @@ def run_transcription(
             text = ""
 
         client_audio: ClientAudio = clients.get(client_id)
-        client_audio.transcribed_at = transcribed_at
-        client_audio.text = text
-        if metadata.get("eos"):
-            client_audio.segments.append(text)
-            text = "\n".join(client_audio.segments)
-        clients[client_id] = client_audio
+        if client_audio:
+            client_audio.transcribed_at = transcribed_at
+            client_audio.text = text
+            if metadata.get("eos"):
+                client_audio.segments.append(text)
+                text = "\n".join(client_audio.segments)
+            clients[client_id] = client_audio
         result_queue.put((client_id, text, metadata))
 
         # logging.info(f"Transcription completed for {client_id}, {text}")

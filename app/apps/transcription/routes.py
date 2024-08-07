@@ -3,15 +3,21 @@ import logging
 import uuid
 
 import fastapi
-
+from .schemas import ClientAudioSchema
 from .handlers import connected_clients
 from .services import VoiceReceiverService
 
 router = fastapi.APIRouter(tags=["transcription"])
 
 
+@router.get("/{client_id}", response_model=ClientAudioSchema)
+async def get_audio(client_id: str):
+    client_id = str(client_id)
+    return connected_clients.get(client_id, None)
+
+
 @router.websocket("/ws/{client_id}")
-async def get_audio(websocket: fastapi.WebSocket, client_id: uuid.UUID):
+async def ws_audio(websocket: fastapi.WebSocket, client_id: uuid.UUID):
     client_id = str(client_id)
     await websocket.accept()
     connected_clients[client_id] = websocket
